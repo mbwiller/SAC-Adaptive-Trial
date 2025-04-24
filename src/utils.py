@@ -106,3 +106,50 @@ def adapt_hyperparameters_to_environment(env_params):
         hyperparams['target_entropy'] = -1.5  # Lower entropy
     
     return hyperparams
+
+def calculate_statistical_significance(success_proportions, policy_names):
+    """
+    Calculate statistical significance of differences between policies
+    
+    Parameters:
+    -----------
+    success_proportions : dict
+        Dictionary mapping policy names to lists of success proportions
+    policy_names : list
+        List of policy names
+        
+    Returns:
+    --------
+    significance : dict
+        Dictionary containing statistical significance results
+    """
+    
+    significance = {}
+    
+    for i, name1 in enumerate(policy_names):
+        for j, name2 in enumerate(policy_names):
+            if j <= i:  # Only compare each pair once
+                continue
+                
+            # Get data
+            data1 = success_proportions[name1]
+            data2 = success_proportions[name2]
+            
+            # Perform t-test
+            t_stat, p_val = stats.ttest_ind(data1, data2)
+            
+            # Calculate effect size (Cohen's d)
+            effect_size = (np.mean(data1) - np.mean(data2)) / np.sqrt(
+                (np.std(data1, ddof=1)**2 + np.std(data2, ddof=1)**2) / 2
+            )
+            
+            # Store results
+            key = f"{name1}_vs_{name2}"
+            significance[key] = {
+                't_statistic': t_stat,
+                'p_value': p_val,
+                'effect_size': effect_size,
+                'significant': p_val < 0.05
+            }
+    
+    return significance
