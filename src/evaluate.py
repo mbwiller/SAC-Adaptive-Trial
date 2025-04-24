@@ -168,3 +168,167 @@ def ideal_policy(env):
         p_exp = env.alpha_exp / (env.alpha_exp + env.beta_exp)
         p_ctrl = env.alpha_ctrl / (env.alpha_ctrl + env.beta_ctrl)
         return 1.0 if p_exp > p_ctrl else 0.0
+
+def run_oracle_benchmark(N, T, p_true_exp, p_true_ctrl, seed=None, safety_factor=1.5):
+    """
+    Generate all potential outcomes and find the optimal allocation with perfect knowledge
+    
+    Parameters:
+    -----------
+    N : int
+        Number of patients per cohort
+    T : int
+        Number of time periods
+    p_true_exp : float
+        True success probability for experimental treatment
+    p_true_ctrl : float
+        True success probability for control treatment
+    seed : int or None
+        Random seed for reproducibility
+    safety_factor : float
+        Factor to multiply N*T by to ensure sufficient outcomes (default: 1.5)
+        
+    Returns:
+    --------
+    best_allocation : int
+        Optimal number of patients to allocate to experimental treatment
+    success_proportion : float
+        Success proportion achieved with optimal allocation
+    all_outcomes_exp : list
+        Pre-generated outcomes for experimental treatment
+    all_outcomes_ctrl : list
+        Pre-generated outcomes for control treatment
+    """
+    if seed is not None:
+        rng = np.random.RandomState(generate_benchmark_seed(seed))
+    else:
+        rng = np.random.RandomState()
+    
+    # Calculate total number of potential patients
+    total_patients = N * T
+    
+    # Generate sufficient outcomes with safety margin
+    # This ensures we have enough outcomes for all possible allocations
+    # and provides a buffer for adaptive or varying allocation strategies
+    num_outcomes = int(total_patients * safety_factor)
+    
+    # Generate all potential outcomes for both treatments
+    all_outcomes_exp = []
+    all_outcomes_ctrl = []
+    
+    # Generate outcomes
+    all_outcomes_exp = [1 if rng.random() < p_true_exp else 0 for _ in range(num_outcomes)]
+    all_outcomes_ctrl = [1 if rng.random() < p_true_ctrl else 0 for _ in range(num_outcomes)]
+    
+    # Verify we have enough outcomes
+    if len(all_outcomes_exp) < total_patients or len(all_outcomes_ctrl) < total_patients:
+        warnings.warn(f"Generated only {len(all_outcomes_exp)} outcomes when {total_patients} might be needed. "
+                     f"Consider increasing safety_factor above {safety_factor}.")
+    
+    # Find optimal allocation using perfect knowledge
+    best_allocation = None
+    max_successes = -1
+    
+    # Try all possible allocations of n patients to experimental treatment
+    for n_exp in range(total_patients + 1):
+        n_ctrl = total_patients - n_exp
+        
+        # Calculate successes for this allocation
+        exp_successes = sum(all_outcomes_exp[:n_exp])
+        ctrl_successes = sum(all_outcomes_ctrl[:n_ctrl])
+        total_successes = exp_successes + ctrl_successes
+        
+        if total_successes > max_successes:
+            max_successes = total_successes
+            best_allocation = n_exp
+    
+    # Calculate the success proportion
+    success_proportion = max_successes / total_patients
+    
+    # Create metadata for tracking
+    metadata = {
+        'N': N,
+        'T': T,
+        'p_true_exp': p_true_exp,
+        'p_true_ctrl': p_true_ctrl,
+        'seed': seed,
+        'best_allocation': best_allocation,
+        'best_allocation_ratio': best_allocation / total_patients,
+        'max_successes': max_successes,
+        'success_proportion': success_proportion,
+        'outcomes_generated': len(all_outcomes_exp)
+    }
+    
+    return best_allocation, success_proportion, all_outcomes_exp, all_outcomes_ctrl, metadata
+
+
+def calculate_statistical_significance(success_proportions, policy_names):
+    """
+    Calculate statistical significance of differences between policies
+    
+    Parameters:
+    -----------
+    success_proportions : dict
+        Dictionary mapping policy names to lists of success proportions
+    policy_names : list
+        List of policy names
+        
+    Returns:
+    --------
+    significance : dict
+        Dictionary containing statistical significance results
+    """
+    
+    significance = {}
+    
+    for i, name1 in enumerate(policy_names):
+        for j, name2 in enumerate(policy_names):
+            if j <= i:  # Only compare each pair once
+                continue
+                
+            # Get data
+            data1 = success_proportions[name1]
+            data2 = success_proportions[name2]
+            
+            # Perform t-test
+            t_stat, p_val = stats.ttest_ind(data1, data2)
+            
+            # Calculate effect size (Cohen's d)
+            effect_size = (np.mean(data1) - np.mean(data2)) / np.sqrt(
+                (np.std(data1, ddof=1)**2 + np.std(data2, ddof=1)**2) / 2
+            )
+            
+            # Store results
+            key = f"{name1}_vs_{name2}"
+            significance[key] = {
+                't_statistic': t_stat,
+                'p_value': p_val,
+                'effect_size': effect_size,
+                'significant': p_val < 0.05
+            }
+    
+    return significance
+
+
+def generate_benchmark_seed(base_seed, salt=""):
+    """
+    Generate a reproducible but well-distributed seed using a hash function
+    
+    Parameters:
+    -----------
+    base_seed : int
+        Base seed value
+    salt : str
+        Additional string to mix with the seed
+        
+    Returns:
+    --------
+    derived_seed : int
+        New seed value derived from base_seed and salt
+    """
+    seed_str = f"{base_seed}_{salt}"
+    
+    hash_obj = hashlib.sha256(seed_str.encode())
+    hash_hex = hash_obj.hexdigest()
+    
+    return int(hash_hex[:8], 16)
