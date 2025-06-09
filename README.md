@@ -8,5 +8,3 @@ Adaptive clinical trial designs dynamically allocate patients based on accruing 
 We model two-arm trials as a finite-horizon MDP with Beta–Bernoulli updates and train a Soft Actor-Critic agent to optimize patient allocations.
 
 A Total Variation Distance term quantifies information gain, balancing exploration and exploitation across diverse scenarios.
-
-_(Note: ChatGPT was used to help with coding)_
